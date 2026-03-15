@@ -66,8 +66,9 @@ function analyzeResponse(response: any): VerificationStatus {
 
   // Known registration conflict codes
   // 114004: User already exists
-  // 200001007: Mobile already registered
-  if (code === "114004" || code === "200001007") {
+  // 200201007, 200001007: Mobile already registered
+  // 100201007: Account exists
+  if (code === "114004" || code === "200001007" || code === "200201007" || code === "100201007") {
     return "REGISTERED";
   }
 
