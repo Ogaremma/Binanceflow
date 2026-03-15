@@ -80,13 +80,17 @@ export async function executeBinancePuppeteerCheck(callingCode: string, mobile: 
         const status = response.status();
         try {
           const body = await response.json();
-          console.log(`[NETWORK SPY] << ${status} ${url} | Body: ${JSON.stringify(body).slice(0, 250)}...`);
           
-          // CAPTURE ALL BAPI RESPONSES AS POTENTIAL RESULTS
-          // If we get a code other than 000000, it's likely a registration hint
-          if (body.code && body.code !== "000000") {
-             console.log(`[SIGNATURE DETECTED] ${body.code}: ${body.message}`);
-             capturedResponse = body; 
+          // Only log interesting responses or failures to reduce noise
+          const isError = body.code && body.code !== "000000";
+          const isInteresting = url.includes("sendMobileVerifyCode") || url.includes("register") || url.includes("precheck");
+
+          if (isError || isInteresting) {
+             // Silence the noisy "Please log in first" signature
+             if (body.code !== "100001005") {
+                console.log(`[SIGNATURE DETECTED] ${body.code}: ${body.message || "(No message)"} | URL: ${url.split('?')[0]}`);
+                capturedResponse = body; 
+             }
           }
 
           if (url.includes("/bapi/accounts/v1/public/account/security/request/precheck")) {
@@ -140,20 +144,38 @@ export async function executeBinancePuppeteerCheck(callingCode: string, mobile: 
       return !!input;
     });
 
-    // ROBUST CHECKBOX CLOCKING
-    console.log("[DEBUG] Hijacking privacy checkbox...");
-    await page.evaluate(() => {
-      const labels = Array.from(document.querySelectorAll('label, span, div'));
-      const privacyLabel = labels.find(l => l.textContent?.includes('agree to Binance') || l.textContent?.includes('Privacy Notice'));
-      if (privacyLabel) {
-        console.log(`[BROWSER] Clicking found privacy label: ${privacyLabel.textContent?.slice(0,20)}`);
-        (privacyLabel as HTMLElement).click();
-      } else {
-        const checkbox = document.querySelector('input[type="checkbox"]') as HTMLElement;
-        if (checkbox) checkbox.click();
+    // ROBUST CHECKBOX HIJACK
+    console.log("[DEBUG] Cracking privacy checkbox...");
+    try {
+      const checkboxChecked = await page.evaluate(() => {
+        const checkbox = document.querySelector('input[type="checkbox"]') as HTMLInputElement;
+        if (checkbox && !checkbox.checked) {
+          // Find the label or parent to click
+          const parent = checkbox.closest('div, label');
+          if (parent) (parent as HTMLElement).click();
+          else checkbox.click();
+          return true;
+        }
+        return !!(checkbox && checkbox.checked);
+      });
+      
+      if (!checkboxChecked) {
+        // Fallback: Click the coordinates of anything containing "Privacy Notice"
+        const coords = await page.evaluate(() => {
+           const elements = Array.from(document.querySelectorAll('span, div, label'));
+           const target = elements.find(el => el.textContent?.includes('Privacy Notice'));
+           if (target) {
+              const rect = target.getBoundingClientRect();
+              return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+           }
+           return null;
+        });
+        if (coords) await page.mouse.click(coords.x, coords.y);
       }
+    } catch (e) {}
 
-      // Clear other overlays
+    // Clear overlays
+    await page.evaluate(() => {
       const overlays = Array.from(document.querySelectorAll('button, a')).filter(el => {
         const t = el.textContent?.toLowerCase() || '';
         return (t.includes('accept') || t.includes('agree') || t.includes('ok')) && !t.includes('continue');
