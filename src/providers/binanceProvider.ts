@@ -1,7 +1,5 @@
-import axios from "axios";
 import { VerificationStatus } from "../types/verificationStatus.js";
-
-const BINANCE_SEND_SMS_URL = "https://accounts.binance.com/bapi/accounts/v1/public/account/mobile/sendMobileVerifyCode";
+import { executeBinancePuppeteerCheck } from "../services/puppeteerService.js";
 
 export interface ProviderResponse {
   status: VerificationStatus;
@@ -10,62 +8,68 @@ export interface ProviderResponse {
 }
 
 /**
- * Sends a request to Binance's public SMS verification endpoint.
- * Interprets the response to determine if a phone number might be registered.
+ * Orchestrates the registration check by calling the Puppeteer service
+ * and analyzing the captured network response.
  */
-export async function checkBinanceRegistration(callingCode: string, mobile: string): Promise<ProviderResponse> {
+export async function checkBinanceRegistration(callingCode: string, mobile: string, captchaKey?: string): Promise<ProviderResponse> {
   try {
-    const payload = {
-      mobile,
-      callingCode,
-      msgType: "TEXT",
-      bizScene: "REGISTER"
-    };
+    const { capturedResponse, error } = await executeBinancePuppeteerCheck(mobile, captchaKey);
 
-    const response = await axios.post(BINANCE_SEND_SMS_URL, payload, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Content-Type": "application/json",
-        "clienttype": "web"
-      },
-      timeout: 10000
-    });
-
-    const data = response.data;
-    const code = String(data.code || "");
-    const msg = String(data.msg || "").toLowerCase();
-
-    // Interpretation logic
-    // Usually if bizScene is REGISTER, and number is already registered,
-    // binance returns an error saying "user exists" or similar code.
-    if (msg.includes("exist") || msg.includes("registered") || code === "114004" || code === "200001007") {
-      return { status: "REGISTERED", rawResponse: data };
+    if (error) {
+      return {
+        status: "UNKNOWN",
+        rawResponse: null,
+        error: `Puppeteer Error: ${error}`
+      };
     }
 
-    // Success sending sms means it's available to register
-    if (data.success === true || code === "000000") {
-      return { status: "NOT_REGISTERED", rawResponse: data };
-    }
-
-    // Case can't be strongly determined
-    return { status: "UNKNOWN", rawResponse: data };
-
-  } catch (error: any) {
-    if (error.response && error.response.data) {
-      const respData = error.response.data;
-      const msg = String(respData.msg || "").toLowerCase();
-
-      if (msg.includes("exist") || msg.includes("registered")) {
-        return { status: "REGISTERED", rawResponse: respData };
-      }
-
-      return { status: "UNKNOWN", rawResponse: respData, error: error.message };
+    if (!capturedResponse) {
+      return {
+        status: "UNKNOWN",
+        rawResponse: null,
+        error: "No response detected from Binance API within the timeout period."
+      };
     }
 
     return {
+      status: analyzeResponse(capturedResponse),
+      rawResponse: capturedResponse
+    };
+
+  } catch (err: any) {
+    // Catch-all to ensure any unexpected error (DNS, network, etc.) results in UNKNOWN
+    return {
       status: "UNKNOWN",
-      rawResponse: null,
-      error: error.message || "Network Error"
+      rawResponse: err,
+      error: err.message || "Unknown Provider Error"
     };
   }
+}
+
+/**
+ * Analyzes the raw API response and maps it to a VerificationStatus.
+ */
+function analyzeResponse(response: any): VerificationStatus {
+  const code = String(response.code || "");
+  const message = String(response.message || response.msg || "").toLowerCase();
+
+  // If response code is "000000", it means the mobile verify code can be sent (not registered)
+  if (code === "000000") {
+    return "NOT_REGISTERED";
+  }
+
+  // If message indicates existence, it's registered
+  // Examples: "Mobile already exist", "User exists", etc.
+  if (message.includes("exist")) {
+    return "REGISTERED";
+  }
+
+  // Known registration conflict codes
+  // 114004: User already exists
+  // 200001007: Mobile already registered
+  if (code === "114004" || code === "200001007") {
+    return "REGISTERED";
+  }
+
+  return "UNKNOWN";
 }

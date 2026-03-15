@@ -9,23 +9,27 @@ export function createCLI() {
     .description("CLI tool to check Binance registration status of a phone number")
     .version("1.0.0")
     .argument("<phone>", "Phone number to check (e.g., +2347012345678)")
-    .action(async (phone: string) => {
+    .option("--debug", "Show raw API response")
+    .option("--captcha-key <key>", "CapMonster Cloud API Key for solving CAPTCHAs")
+    .action(async (phone: string, options: { debug?: boolean, captchaKey?: string }) => {
       console.log(`Checking Binance registration status...\n`);
 
-      const result = await verifyPhoneRegistration(phone);
+      const key = options.captchaKey || process.env.CAPMONSTER_API_KEY;
+      const result = await verifyPhoneRegistration(phone, key);
 
       console.log(`Phone: ${result.phone}`);
       console.log(`Status: ${result.status}`);
       console.log(`Source: Binance registration flow\n`);
 
-      console.log(`Possible Status Values:\n`);
-      console.log(`REGISTERED`);
-      console.log(`NOT_REGISTERED`);
-      console.log(`UNKNOWN`);
-      console.log(`ERROR\n`);
-
-      if (result.status === "ERROR") {
-        console.log(`Error details: ${result.error}\n`);
+      if (options.debug || result.status === "UNKNOWN" || result.status === "ERROR") {
+        console.log(`--- DEBUG INFO ---`);
+        if (result.error) console.log(`Error: ${result.error}`);
+        
+        if (result.rawResponse) {
+          console.log(`Raw Response Data:`);
+          console.log(JSON.stringify(result.rawResponse, null, 2));
+        }
+        console.log(`------------------\n`);
       }
     });
 

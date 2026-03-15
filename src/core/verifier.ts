@@ -13,12 +13,12 @@ export interface VerificationResult {
 /**
  * Orchestrates the phone formatting and provider verification logic.
  */
-export async function verifyPhoneRegistration(phoneNumber: string): Promise<VerificationResult> {
+export async function verifyPhoneRegistration(phoneNumber: string, captchaKey?: string): Promise<VerificationResult> {
   // Parse and format phone
   const formatted = formatPhone(phoneNumber);
 
   // Call the Binance provider
-  const providerResult = await checkBinanceRegistration(formatted.callingCode, formatted.mobile);
+  const providerResult = await checkBinanceRegistration(formatted.callingCode, formatted.mobile, captchaKey);
 
   // Construct the final result
   return {
