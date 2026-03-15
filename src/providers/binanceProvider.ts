@@ -13,7 +13,7 @@ export interface ProviderResponse {
  */
 export async function checkBinanceRegistration(callingCode: string, mobile: string, captchaKey?: string): Promise<ProviderResponse> {
   try {
-    const { capturedResponse, error } = await executeBinancePuppeteerCheck(mobile, captchaKey);
+    const { capturedResponse, error } = await executeBinancePuppeteerCheck(callingCode, mobile, captchaKey);
 
     if (error) {
       return {
