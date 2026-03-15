@@ -34,13 +34,14 @@ export async function executeBinancePuppeteerCheck(mobile: string, captchaKey?: 
       '--window-size=1920,1080',
       '--disable-dns-prefetch',
       '--ignore-certificate-errors',
-      '--host-resolver-rules=MAP accounts.binance.com 13.248.148.169, MAP accounts.binance.me 15.197.202.122, MAP accounts.binance.info 76.223.23.250',
+      '--host-resolver-rules=MAP *.binance.com 13.248.148.169, MAP *.binance.me 15.197.202.122, MAP *.binance.info 76.223.23.250, MAP *.binance.cloud 76.223.23.250',
       '--enable-features=HostResolverRules'
     ]
   });
 
   const mirrors = [
     "https://accounts.binance.com/en/register",
+    "https://www.binance.com/en/register",
     "https://accounts.binance.me/en/register",
     "https://accounts.binance.info/en/register"
   ];
@@ -90,9 +91,6 @@ export async function executeBinancePuppeteerCheck(mobile: string, captchaKey?: 
         navigated = true;
       } catch (gotoError: any) {
         console.log(`Navigation to ${mirror} failed: ${gotoError.message}`);
-        if (!gotoError.message.includes('ERR_NAME_NOT_RESOLVED')) {
-          // If it's not a DNS error, it might just be slow, so we can try the next one or stop
-        }
       }
     }
 
@@ -112,7 +110,7 @@ export async function executeBinancePuppeteerCheck(mobile: string, captchaKey?: 
     const inputSelector = 'input[type="tel"], input[name="mobile"], input[placeholder*="phone" i]';
 
     try {
-      await page.waitForSelector(inputSelector, { timeout: 20000 });
+      await page.waitForSelector(inputSelector, { timeout: 30000 });
       await page.focus(inputSelector);
 
       // Type with human-like delay
@@ -167,6 +165,8 @@ export async function executeBinancePuppeteerCheck(mobile: string, captchaKey?: 
         await new Promise(r => setTimeout(r, 1000));
       }
     } catch (uiError: any) {
+      const pageText = await page.evaluate(() => document.body.innerText.slice(0, 500));
+      console.log(`UI interaction failed. Page content preview: "${pageText.replace(/\n/g, ' ')}"`);
       console.log(`UI interaction interrupted: ${uiError.message}`);
     }
 
