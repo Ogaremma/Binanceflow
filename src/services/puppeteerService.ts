@@ -66,29 +66,21 @@ export async function executeBinancePuppeteerCheck(callingCode: string, mobile: 
     let capturedResponse: any = null;
     let validateId: string | null = null;
 
-    // --- NETWORK SPY ---
-    page.on('request', (request: any) => {
-      const url = request.url();
-      if (url.includes('/bapi/')) {
-        console.log(`[NETWORK SPY] >> ${request.method()} ${url}`);
-      }
-    });
 
     page.on('response', async (response: any) => {
       const url = response.url();
       if (url.includes('/bapi/')) {
-        const status = response.status();
         try {
           const body = await response.json();
           
           // Only log interesting responses or failures to reduce noise
           const isError = body.code && body.code !== "000000";
-          const isInteresting = url.includes("sendMobileVerifyCode") || url.includes("register") || url.includes("precheck");
+          const isInteresting = url.includes("sendMobileVerifyCode") || url.includes("register");
 
           if (isError || isInteresting) {
              // Silence the noisy "Please log in first" signature
              if (body.code !== "100001005") {
-                console.log(`[SIGNATURE DETECTED] ${body.code}: ${body.message || "(No message)"} | URL: ${url.split('?')[0]}`);
+                console.log(`[SIGNATURE DETECTED] ${body.code}: ${body.message || "(No message)"}`);
                 capturedResponse = body; 
              }
           }
@@ -147,31 +139,39 @@ export async function executeBinancePuppeteerCheck(callingCode: string, mobile: 
     // ROBUST CHECKBOX HIJACK
     console.log("[DEBUG] Cracking privacy checkbox...");
     try {
-      const checkboxChecked = await page.evaluate(() => {
-        const checkbox = document.querySelector('input[type="checkbox"]') as HTMLInputElement;
-        if (checkbox && !checkbox.checked) {
-          // Find the label or parent to click
-          const parent = checkbox.closest('div, label');
-          if (parent) (parent as HTMLElement).click();
-          else checkbox.click();
-          return true;
+      // Hardware click on the checkbox or its label
+      const checkboxCoords = await page.evaluate(async () => {
+        const cb = document.querySelector('input[type="checkbox"], [class*="checkbox" i]') as HTMLElement;
+        if (cb) {
+          cb.scrollIntoView({ block: 'center' });
+          await new Promise(r => setTimeout(r, 500));
+          const rect = cb.getBoundingClientRect();
+          if (rect.width > 0) return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
         }
-        return !!(checkbox && checkbox.checked);
+        const labels = Array.from(document.querySelectorAll('label, span, div, p'));
+        const privacyLabel = labels.find(l => l.textContent?.includes('agree to Binance') || l.textContent?.includes('Privacy Notice')) as HTMLElement;
+        if (privacyLabel) {
+          privacyLabel.scrollIntoView({ block: 'center' });
+          await new Promise(r => setTimeout(r, 500));
+          const rect = privacyLabel.getBoundingClientRect();
+          return { x: rect.left + 5, y: rect.top + 5 };
+        }
+        return null;
       });
-      
-      if (!checkboxChecked) {
-        // Fallback: Click the coordinates of anything containing "Privacy Notice"
-        const coords = await page.evaluate(() => {
-           const elements = Array.from(document.querySelectorAll('span, div, label'));
-           const target = elements.find(el => el.textContent?.includes('Privacy Notice'));
-           if (target) {
-              const rect = target.getBoundingClientRect();
-              return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
-           }
-           return null;
-        });
-        if (coords) await page.mouse.click(coords.x, coords.y);
+
+      if (checkboxCoords) {
+        await page.mouse.click(checkboxCoords.x, checkboxCoords.y);
+        console.log(`[DEBUG] Hardware click performed at ${checkboxCoords.x}, ${checkboxCoords.y}`);
       }
+
+      // JS force check as backup
+      await page.evaluate(() => {
+        const cb = document.querySelector('input[type="checkbox"]') as HTMLInputElement;
+        if (cb && !cb.checked) {
+          cb.checked = true;
+          cb.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      });
     } catch (e) {}
 
     // Clear overlays
@@ -220,6 +220,10 @@ export async function executeBinancePuppeteerCheck(callingCode: string, mobile: 
       console.log("[DEBUG] Photo 2: After typing...");
       await page.screenshot({ path: '02_typed.png' });
 
+      // --- CRITICAL: RESET CAPTURED RESPONSE BEFORE SUBMISSION ---
+      console.log("[DEBUG] Resetting capture state for final submission...");
+      capturedResponse = null; 
+
       console.log("[DEBUG] Clicking 'Continue'...");
       const buttonClicked = await page.evaluate(() => {
         const btns = Array.from(document.querySelectorAll('button'));
@@ -244,12 +248,21 @@ export async function executeBinancePuppeteerCheck(callingCode: string, mobile: 
         await new Promise(r => setTimeout(r, 5000));
         console.log(`[MONITOR] Still waiting... (${Math.round((Date.now() - startTime)/1000)}s)`);
         
-        const pageError = await page.evaluate(() => {
-          const el = document.querySelector('.bn-feedback-error, [class*="error" i], .error-message');
-          return el ? el.textContent?.trim() : null;
+        const pageDetection = await page.evaluate(() => {
+          const hasPassword = !!document.querySelector('input[type="password"]');
+          const errorEl = document.querySelector('.bn-feedback-error, [class*="error" i], .error-message');
+          const errorText = errorEl ? errorEl.textContent?.trim() : null;
+          
+          if (hasPassword) return { type: 'REGISTERED', reason: 'Password field detected' };
+          if (errorText && (errorText.includes('exists') || errorText.includes('registered') || errorText.includes('already in use'))) {
+            return { type: 'REGISTERED', reason: errorText };
+          }
+          return null;
         });
-        if (pageError) {
-          console.log(`[DEBUG] Page Displayed Error: ${pageError}`);
+
+        if (pageDetection) {
+          console.log(`[DEBUG] Page Detection: ${pageDetection.type} (${pageDetection.reason})`);
+          capturedResponse = { code: 'UI_DETECTED', message: pageDetection.reason, status: pageDetection.type };
           break;
         }
       }

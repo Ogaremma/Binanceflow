@@ -1,58 +1,62 @@
-# Binance Phone Checker CLI
+# Binance Registration Validator
 
-A Node.js/TypeScript CLI tool that checks the possible registration status of a phone number using the public registration flow of the Binance platform. 
+A highly refined tool built to solve a specific challenge: accurately determining if a phone number is registered on Binance without an official API. This is achieved by simulating the actual registration flow and interpreting real-time network signatures and UI changes.
 
-## Importance Notice
-This tool is for educational purposes to demonstrate request analysis and response interpretation. It **does not** attempt to bypass security protections (e.g., CAPTCHA, rate limits, automation defenses).
+---
 
-## How It Works
-1. Analyzes a given phone number and normalizes it.
-2. Constructs a minimal payload (similar to the Binance web frontend's SMS sending process).
-3. Interprets the HTTP response returned by the `sendMobileVerifyCode` endpoint.
-4. Outputs one of four possible statuses:
-   - `REGISTERED`: Appears already tied to an account.
-   - `NOT_REGISTERED`: SMS sent successfully (number is available).
-   - `UNKNOWN`: The response is inconclusive (e.g., rate limits, varying payloads).
-   - `ERROR`: A network or system fault occurred.
+## Technical Overview
 
-## Prerequisite
-- Node.js (v16+)
-- TypeScript
+The project works by acting as a "human-in-the-browser," navigating the Binance registration pages while simultaneously spying on the background network requests. 
 
-## Setup
-1. Install dependencies:
+### Key Features:
+- **Global Validity Layer**: Before even hitting Binance, numbers are checked against ITU-T E.164 mathematical rules. If a number is too short, too long, or starts with impossible digits for its country, it’s flagged as **UNKNOWN** to save time and data.
+- **Hardware-Level Interaction**: To bypass transparent overlays and complex UI blockers, the tool uses physical coordinate-based clicking to toggle privacy checkboxes.
+- **Multi-Signal Detection**: Registration is confirmed by watching for specific API error codes (like `114004`) or visual cues such as the appearance of a password field or "Already in use" error messages.
+- **Stealth Integration**: Uses advanced browser fingerprinting and human-like typing behaviors to avoid triggering WAF blocks.
+
+---
+
+## Setup & Build
+
+1. **Install Dependencies**:
    ```bash
    npm install
    ```
-2. Build the project:
+2. **Build the Project**:
    ```bash
    npm run build
    ```
 
-## Usage
+---
 
-You can use the built output directly:
+## How to Test
+
+Testing follows three primary scenarios to ensure the data is accurate. 
+
+### 1. The "Fake Number" Test
+Since the tool uses strict global validation, any mathematically impossible number will be caught immediately.
 ```bash
-npm start -- +2347012345678
+npm run dev -- +12345
 ```
+**Expected Result**: `UNKNOWN (Invalid Format)`
 
-Or use the dev script (ts-node):
+### 2. The "Fresh Number" Test
+Test a number that is valid (correct length/prefix) but hasn't been registered on Binance.
 ```bash
-npm run dev -- +2347012345678
+npm run dev -- +2347042725612
 ```
+**Expected Result**: `NOT_REGISTERED`
 
-### Example Output
+### 3. The "Existing account" Test
+Test a known registered Binance account. The tool should detect either the registration conflict or the password prompt.
+```bash
+npm run dev -- [YOUR_BINANCE_NUMBER]
 ```
-Checking Binance registration status...
+**Expected Result**: `REGISTERED`
 
-Phone: +2347012345678
-Status: UNKNOWN
-Source: Binance registration flow
+---
 
-Possible Status Values:
-
-REGISTERED
-NOT_REGISTERED
-UNKNOWN
-ERROR
-```
+## Project Structure
+- `src/utils/phoneFormatter.ts`: Hardcoded E.164 rules for global validation.
+- `src/services/puppeteerService.ts`: The browser engine and UI-cracking logic.
+- `src/providers/binanceProvider.ts`: The logic that translates raw network results into meaningful statuses.

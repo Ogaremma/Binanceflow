@@ -68,8 +68,14 @@ function analyzeResponse(response: any): VerificationStatus {
   // 114004: User already exists
   // 200201007, 200001007: Mobile already registered
   // 100201007: Account exists
-  if (code === "114004" || code === "200001007" || code === "200201007" || code === "100201007") {
+  // 102203001: Associated with existing account
+  if (code === "114004" || code === "200001007" || code === "200201007" || code === "100201007" || code === "102203001") {
     return "REGISTERED";
+  }
+
+  // Handle UI-based detection from Puppeteer
+  if (response.code === "UI_DETECTED") {
+    return response.status || "REGISTERED";
   }
 
   return "UNKNOWN";
